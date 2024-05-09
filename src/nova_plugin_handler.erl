@@ -6,19 +6,40 @@
         ]).
 
 -include_lib("kernel/include/logger.hrl").
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
+-include_lib("opentelemetry_api/include/opentelemetry.hrl").
 
 execute(Req = #{plugins := Plugins}, Env = #{plugin_state := pre_request}) ->
     %% This is a post plugin
     PostPlugins = proplists:get_value(post_request, Plugins, []),
-    run_plugins(PostPlugins, post_request, Req, Env);
+    StartOpts = span_opts(),
+    ?with_span(<<"nova/plugins/post_request">>,
+        StartOpts,
+        fun(_SpanCtx) ->
+            run_plugins(PostPlugins, post_request, Req, Env)
+        end);
 execute(Req = #{plugins := Plugins}, Env) ->
     %% Determine which pre-plugin this is
     PrePlugins = proplists:get_value(pre_request, Plugins, []),
-    run_plugins(PrePlugins, pre_request, Req, Env);
+    StartOpts = span_opts(),
+    ?with_span(<<"nova/plugins/pre_request">>,
+        StartOpts,
+        fun(_SpanCtx) ->
+            run_plugins(PrePlugins, pre_request, Req, Env)
+        end);
 execute(Req, Env) ->
     %% The router could not find any match for us
     {ok, Req, Env}.
 
+%% TODO: opentelemetry_api typing requires all fields
+span_opts() ->
+    #{
+        attributes => #{},
+        links => [],
+        is_recording => true,
+        start_time => opentelemetry:timestamp(),
+        kind => internal
+    }.
 
 run_plugins([], Callback, Req, Env) ->
     {ok, Req, Env#{plugin_state => Callback}};
