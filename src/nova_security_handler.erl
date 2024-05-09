@@ -6,10 +6,19 @@
         ]).
 
 -include_lib("kernel/include/logger.hrl").
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
+-include_lib("opentelemetry_api/include/opentelemetry.hrl").
 
 execute(Req, Env = #{secure := false}) ->
     {ok, Req, Env};
 execute(Req = #{host := Host}, Env = #{secure := {Module, Function}}) ->
+    ?with_span(<<"nova/handler/security">>,
+            span_opts(#{<<"module">> => Module, <<"function">> => Function}),
+            fun(_SpanCtx) ->
+                apply_handler(Req, Host, Env, Module, Function)
+            end).
+
+apply_handler(Req, Host, Env, Module, Function) ->
     UseStacktrace = persistent_term:get(nova_use_stacktrace, false),
     try Module:Function(Req) of
         Result ->
@@ -39,7 +48,14 @@ execute(Req = #{host := Host}, Env = #{secure := {Module, Function}}) ->
             {stop, Req1}
     end.
 
-
+span_opts(Attrs) ->
+    #{
+        attributes => Attrs,
+        links => [],
+        is_recording => true,
+        start_time => opentelemetry:timestamp(),
+        kind => internal
+    }.
 
 handle_response({true, AuthData}, Req, Env) ->
     case maps:get(cowboy_handler, Env, undefined) of

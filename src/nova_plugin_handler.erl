@@ -31,7 +31,6 @@ execute(Req, Env) ->
     %% The router could not find any match for us
     {ok, Req, Env}.
 
-%% TODO: opentelemetry_api typing requires all fields
 span_opts() ->
     #{
         attributes => #{},
