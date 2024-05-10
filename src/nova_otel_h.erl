@@ -72,6 +72,7 @@ terminate(StreamID, Reason, #state{next = Next, span = SpanCtx}) ->
                  -> Resp
                         when Resp::cowboy_stream:resp_command().
 early_error(StreamID, Reason, PartialReq, {_, _Status, _Headers, _} = Resp, Opts) ->
+    otel_tracer:set_current_span(otel_span:end_span(?current_span_ctx, undefined)),
     cowboy_stream:early_error(StreamID, Reason, PartialReq, Resp, Opts).
 
 %% otel_tracer is typespeced to require the field in the latest hex release
