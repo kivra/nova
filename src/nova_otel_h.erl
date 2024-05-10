@@ -32,14 +32,14 @@ init(StreamID, Req, Opts) ->
     Method = maps:get(method, Req),
     SpanAttrs =
         #{
-          'correlation_id' => cowboy_header_value(Req, <<"x-correlation-id">>),
-          'http.host' => maps:get(host, Req),
-          'http.host.port' => maps:get(port, Req),
-          'http.method' => Method,
-          'http.scheme' => maps:get(scheme, Req),
-          'http.target' => maps:get(path, Req),
-          'http.user_agent' => maps:get(<<"user-agent">>, Headers, <<"">>),
-          'net.host.ip' => iolist_to_binary(inet:ntoa(RemoteIP))
+          <<"correlation_id">> => maps:get(<<"x-correlation-id">>, Headers, undefined),
+          <<"http.host">> => maps:get(host, Req),
+          <<"http.host.port">> => maps:get(port, Req),
+          <<"http.method">> => Method,
+          <<"http.scheme">> => maps:get(scheme, Req),
+          <<"http.target">> => maps:get(path, Req),
+          <<"http.user_agent">> => maps:get(<<"user-agent">>, Headers, <<"">>),
+          <<"net.host.ip">> => iolist_to_binary(inet:ntoa(RemoteIP))
     },
     SpanCtx = ?start_span(request, empty_start_opts(SpanAttrs)),
     {Commands, Next} = cowboy_stream:init(StreamID, Req, Opts),
@@ -64,7 +64,7 @@ info(StreamID, Info, State = #state{next = Next}) ->
 -spec terminate(cowboy_stream:streamid(), cowboy_stream:reason(), state()) -> any().
 terminate(StreamID, Reason, #state{next = Next, span = SpanCtx}) ->
     Termination = cowboy_stream:terminate(StreamID, Reason, Next),
-    ?end_span(SpanCtx),
+    otel_tracer:set_current_span(otel_span:end_span(SpanCtx, undefined)),
     Termination.
 
 -spec early_error(cowboy_stream:streamid(), cowboy_stream:reason(),
@@ -85,7 +85,8 @@ empty_start_opts(Attrs) ->
     }.
 
 cowboy_header_value(Header, Req) ->
-    cowboy_req:header(Header, Req).
+    #{headers := Headers} = Req,
+    maps:get(Header, Headers, undefined).
 
 cowboy_headers(Req) ->
     Headers = cowboy_req:headers(Req),
