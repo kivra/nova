@@ -119,7 +119,7 @@ start_cowboy(Configuration) ->
                    nova_handler, %% Controller
                    nova_plugin_handler %% Handle post-request plugins
                   ],
-    StreamHandlers = maps:get(stream_handlers, Configuration, [nova_stream_h, cowboy_compress_h, cowboy_stream_h]),
+    StreamHandlers = maps:get(stream_handlers, Configuration, [nova_otel_h, nova_stream_h, cowboy_compress_h, cowboy_stream_h]),
     Options = maps:get(options, Configuration, #{compress => true}),
 
     %% Build the options map
