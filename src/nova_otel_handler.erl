@@ -34,6 +34,7 @@ execute(Req, Env) ->
           <<"net.host.ip">> => iolist_to_binary(inet:ntoa(RemoteIP))
     },
     SpanCtx = ?start_span(request, empty_start_opts(SpanAttrs)),
+    ?set_current_span(SpanCtx),
     {ok, Req, Env#{span_ctx => SpanCtx}}.
 
 %% otel_tracer is typespeced to require the field in the latest hex release
