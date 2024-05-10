@@ -50,6 +50,9 @@ run_plugins([{Module, Options}|Tl], Callback, Req, Env) ->
                3 -> [Req0, Env, Options];
                _ -> {throw, bad_callback}
            end,
+    SpanName = iolist_to_binary([<<"nova/plugin/">>, atom_to_binary(Module)]),
+    SpanOpts = span_opts(),
+    ?start_span(SpanName, SpanOpts),
     try erlang:apply(Module, Callback, Args) of
         {ok, Req1} ->
             run_plugins(Tl, Callback, Req1, Env);
@@ -68,11 +71,14 @@ run_plugins([{Module, Options}|Tl], Callback, Req, Env) ->
             {stop, Req2}
     catch
         Class:Reason:Stacktrace ->
+            ?record_exception(Class, Reason, <<"plugin crash">>, Stacktrace, #{}),
             ?LOG_ERROR(#{msg => <<"Plugin crashed">>, class => Class, reason => Reason, stacktrace => Stacktrace}),
             Req1 = Req0#{crash_info => #{class => Class,
                                          reason => Reason,
                                          stacktrace => Stacktrace}},
             nova_router:render_status_page('_', 500, #{}, Req1, Env)
+    after
+        ?end_span()
     end.
 
 handle_reply({reply, Body}, Req) ->
