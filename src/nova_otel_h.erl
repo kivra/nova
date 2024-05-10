@@ -42,7 +42,8 @@ init(StreamID, Req, Opts) ->
           <<"net.host.ip">> => iolist_to_binary(inet:ntoa(RemoteIP))
     },
     SpanCtx = ?start_span(request, empty_start_opts(SpanAttrs)),
-    {Commands, Next} = cowboy_stream:init(StreamID, Req, Opts),
+    Req1 = Req#{span_ctx => SpanCtx},
+    {Commands, Next} = cowboy_stream:init(StreamID, Req1, Opts),
     {Commands, #state{next = Next, span = SpanCtx}}.
 
 -spec data(cowboy_stream:streamid(), cowboy_stream:fin(), cowboy_req:resp_body(), State)
