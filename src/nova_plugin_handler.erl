@@ -12,33 +12,14 @@
 execute(Req = #{plugins := Plugins}, Env = #{plugin_state := pre_request}) ->
     %% This is a post plugin
     PostPlugins = proplists:get_value(post_request, Plugins, []),
-    StartOpts = span_opts(),
-    ?with_span(<<"nova/plugins/post_request">>,
-        StartOpts,
-        fun(_SpanCtx) ->
-            run_plugins(PostPlugins, post_request, Req, Env)
-        end);
+    run_plugins(PostPlugins, post_request, Req, Env);
 execute(Req = #{plugins := Plugins}, Env) ->
     %% Determine which pre-plugin this is
     PrePlugins = proplists:get_value(pre_request, Plugins, []),
-    StartOpts = span_opts(),
-    ?with_span(<<"nova/plugins/pre_request">>,
-        StartOpts,
-        fun(_SpanCtx) ->
-            run_plugins(PrePlugins, pre_request, Req, Env)
-        end);
+    run_plugins(PrePlugins, pre_request, Req, Env);
 execute(Req, Env) ->
     %% The router could not find any match for us
     {ok, Req, Env}.
-
-span_opts() ->
-    #{
-        attributes => #{},
-        links => [],
-        is_recording => true,
-        start_time => opentelemetry:timestamp(),
-        kind => internal
-    }.
 
 run_plugins([], Callback, Req, Env) ->
     {ok, Req, Env#{plugin_state => Callback}};
@@ -50,9 +31,8 @@ run_plugins([{Module, Options}|Tl], Callback, Req, Env) ->
                3 -> [Req0, Env, Options];
                _ -> {throw, bad_callback}
            end,
-    SpanName = iolist_to_binary([<<"nova/plugin/">>, atom_to_binary(Module)]),
-    SpanOpts = span_opts(),
-    ?start_span(SpanName, SpanOpts),
+    EventName = iolist_to_binary([<<"nova ">>, atom_to_binary(Callback), <<" plugin">>]),
+    ?add_event(EventName, #{'nova.plugin' => Module}),
     try erlang:apply(Module, Callback, Args) of
         {ok, Req1} ->
             run_plugins(Tl, Callback, Req1, Env);
@@ -77,8 +57,6 @@ run_plugins([{Module, Options}|Tl], Callback, Req, Env) ->
                                          reason => Reason,
                                          stacktrace => Stacktrace}},
             nova_router:render_status_page('_', 500, #{}, Req1, Env)
-    after
-        ?end_span()
     end.
 
 handle_reply({reply, Body}, Req) ->

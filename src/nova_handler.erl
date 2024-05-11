@@ -22,20 +22,16 @@
 -spec execute(Req, Env) -> {ok, Req, Env}
                                when Req::cowboy_req:req(), Env::cowboy_middleware:env().
 execute(Req, Env = #{cowboy_handler := Handler, arguments := Arguments}) ->
-    ?with_span(<<"nova/handler">>,
-        span_opts(#{<<"cowboy_handler">> => Handler, <<"argument_count">> => length(Arguments)}),
-        fun(_SpanCtx) ->
-            cowboy_handler(Req, Env, Handler, Arguments)
-        end);
+    cowboy_handler(Req, Env, Handler, Arguments);
 execute(Req, Env = #{module := Module, function := Function}) ->
-    ?with_span(<<"nova/handler">>,
-        span_opts(#{<<"module">> => Module, <<"function">> => Function}),
-        fun(_SpanCtx) ->
-            nova_handler(Req, Env, Module, Function)
-        end).
+    nova_handler(Req, Env, Module, Function).
 
 cowboy_handler(Req, Env, Handler, Arguments) ->
     UseStacktrace = persistent_term:get(nova_use_stacktrace, false),
+    ?set_attributes(#{
+                    'nova.handler.type' => cowboy_handler,
+                    'nova.handler.module' => Handler
+                    }),
     try erlang:apply(Handler, init, [Req, Arguments]) of
         {ok, Req2, _State} ->
             Result = terminate(normal, Req2, Handler),
@@ -63,17 +59,24 @@ cowboy_handler(Req, Env, Handler, Arguments) ->
 nova_handler(Req, Env, Module, Function) ->
     %% Ensure that the module exists and have the correct function exported
     UseStacktrace = persistent_term:get(nova_use_stacktrace, false),
+    ?set_attributes(#{
+                    'nova.handler.type' => nova_handler,
+                    'nova.handler.module' => Module,
+                    'nova.handler.function' => Function
+                    }),
     try
         RetObj = Module:Function(Req),
         call_handler(Module, Function, Req, RetObj, Env, false)
     catch
         Class:{Status, Reason} when is_integer(Status) ->
+            ?record_exception(Class, Reason, <<"handler crash">>, [], #{}),
             %% This makes it so that we don't need to fetch the stacktrace
             ?LOG_ERROR(#{msg => <<"Controller threw an exception">>,
                          class => Class,
                          reason => Reason}),
             render_response(Req#{crash_info => Reason}, Env, Status);
         Class:Reason:Stacktrace when UseStacktrace == true ->
+            ?record_exception(Class, Reason, <<"handler crash">>, Stacktrace, #{}),
             ?LOG_ERROR(#{msg => <<"Controller crashed">>,
                          class => Class,
                          reason => Reason,
@@ -86,6 +89,7 @@ nova_handler(Req, Env, Module, Function) ->
                         reason => Reason},
             render_response(Req#{crash_info => Payload}, Env, 500);
         Class:Reason ->
+            ?record_exception(Class, Reason, <<"handler crash">>, [], #{}),
             ?LOG_ERROR(#{msg => <<"Controller crashed">>,
                          class => Class,
                          reason => Reason}),
@@ -96,15 +100,6 @@ nova_handler(Req, Env, Module, Function) ->
                         reason => Reason},
             render_response(Req#{crash_info => Payload}, Env, 500)
     end.
-
-span_opts(Attrs) ->
-    #{
-        attributes => Attrs,
-        links => [],
-        is_recording => true,
-        start_time => opentelemetry:timestamp(),
-        kind => internal
-    }.
 
 -spec terminate(any(), Req | undefined, module()) -> ok when Req::cowboy_req:req().
 terminate(Reason, Req, Module) ->

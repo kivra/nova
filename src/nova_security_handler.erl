@@ -12,11 +12,8 @@
 execute(Req, Env = #{secure := false}) ->
     {ok, Req, Env};
 execute(Req = #{host := Host}, Env = #{secure := {Module, Function}}) ->
-    ?with_span(<<"nova/handler/security">>,
-            span_opts(#{<<"module">> => Module, <<"function">> => Function}),
-            fun(_SpanCtx) ->
-                apply_handler(Req, Host, Env, Module, Function)
-            end).
+    ?add_event('nova security', #{<<"module">> => Module, <<"function">> => Function}),
+    apply_handler(Req, Host, Env, Module, Function).
 
 apply_handler(Req, Host, Env, Module, Function) ->
     UseStacktrace = persistent_term:get(nova_use_stacktrace, false),
@@ -25,6 +22,7 @@ apply_handler(Req, Host, Env, Module, Function) ->
             handle_response(Result, Req, Env)
     catch
         Class:Reason:Stacktrace when UseStacktrace == true ->
+            ?record_exception(Class, Reason, <<"security handler crash">>, Stacktrace, #{}),
             ?LOG_ERROR(#{msg => <<"Security handler crashed">>,
                          class => Class,
                          reason => Reason,
@@ -37,6 +35,7 @@ apply_handler(Req, Host, Env, Module, Function) ->
             Req1 = cowboy_req:reply(500, Req0),
             {stop, Req1};
         Class:Reason ->
+            ?record_exception(Class, Reason, <<"security handler crash">>, [], #{}),
             ?LOG_ERROR(#{msg => <<"Security handler crashed">>,
                          class => Class,
                          reason => Reason}),
@@ -47,15 +46,6 @@ apply_handler(Req, Host, Env, Module, Function) ->
             Req1 = cowboy_req:reply(500, Req0),
             {stop, Req1}
     end.
-
-span_opts(Attrs) ->
-    #{
-        attributes => Attrs,
-        links => [],
-        is_recording => true,
-        start_time => opentelemetry:timestamp(),
-        kind => internal
-    }.
 
 handle_response({true, AuthData}, Req, Env) ->
     case maps:get(cowboy_handler, Env, undefined) of

@@ -10,8 +10,10 @@
 
 -spec execute(Req, Env) -> {ok, Req, Env}
     when Req::cowboy_req:req(), Env::cowboy_middleware:env().
-execute(Req, #{span_ctx := _SpanCtx}=Env) ->
-    ?end_span(),
+execute(Req, #{span_ctx := SpanCtx}=Env) ->
+    % End span that was started
+    Timestamp = undefined,
+    otel_tracer:set_current_span(otel_span:end_span(SpanCtx, Timestamp)),
     {ok, Req, Env};
 execute(Req, Env) ->
     %% Extract and start opentelemetry span
@@ -33,8 +35,8 @@ execute(Req, Env) ->
           <<"http.user_agent">> => maps:get(<<"user-agent">>, Headers, <<"">>),
           <<"net.host.ip">> => iolist_to_binary(inet:ntoa(RemoteIP))
     },
-    SpanCtx = ?start_span(request, empty_start_opts(SpanAttrs)),
-    ?set_current_span(SpanCtx),
+    SpanCtx = otel_tracer:start_span(?current_tracer, Method, empty_start_opts(SpanAttrs)),
+    otel_tracer:set_current_span(SpanCtx),
     {ok, Req, Env#{span_ctx => SpanCtx}}.
 
 %% otel_tracer is typespeced to require the field in the latest hex release

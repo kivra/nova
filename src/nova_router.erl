@@ -32,6 +32,8 @@
 
 -include_lib("routing_tree/include/routing_tree.hrl").
 -include_lib("kernel/include/logger.hrl").
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
+-include_lib("opentelemetry_api/include/opentelemetry.hrl").
 -include("../include/nova_router.hrl").
 
 -type bindings() :: #{binary() := binary()}.
@@ -66,7 +68,10 @@ execute(Req = #{host := Host, path := Path, method := Method}, Env) ->
         {error, not_found} -> render_status_page('_', 404, #{error => "Not found in path"}, Req, Env);
         {error, comparator_not_found} -> render_status_page('_', 405, #{error => "Method not allowed"}, Req, Env);
         {ok, Bindings, #nova_handler_value{app = App, module = Module, function = Function,
-                                           secure = Secure, plugins = Plugins, extra_state = ExtraState}} ->
+                                           secure = Secure, plugins = Plugins, extra_state = ExtraState,
+                                           realpath = RealPath}} ->
+            ?update_name(iolist_to_binary([Method, " ", RealPath])),
+            ?set_attribute('http.route', RealPath),
             {ok,
              Req#{plugins => Plugins,
                   extra_state => ExtraState,
@@ -193,7 +198,9 @@ compile_paths([RouteInfo|Tl], Dispatch, Options) ->
 
     Value = #nova_handler_value{secure = maps:get(secure, Options, maps:get(security, RouteInfo, false)),
                                 app = App, plugins = normalize_plugins(Plugins),
-                                extra_state = maps:get(extra_state, RouteInfo, #{})},
+                                extra_state = maps:get(extra_state, RouteInfo, #{}),
+                                realpath = ""
+                                },
 
     Prefix = maps:get(prefix, Options, "") ++ maps:get(prefix, RouteInfo, ""),
     Host = maps:get(host, RouteInfo, '_'),
@@ -340,7 +347,8 @@ parse_url(Host, [{Path, {Mod, Func}, Options}|Tl], Prefix,
                                }
                       end,
                   ?LOG_DEBUG(#{action => <<"Adding route">>, route => RealPath, app => App}),
-                  insert(Host, RealPath, BinMethod, Value1, Tree0)
+                  Value2 = Value1#nova_handler_value{realpath = RealPath},
+                  insert(Host, RealPath, BinMethod, Value2, Tree0)
           end, Tree, Methods),
     parse_url(Host, Tl, Prefix, Value, CompiledPaths);
 parse_url(Host,

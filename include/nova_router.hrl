@@ -5,7 +5,8 @@
                              function :: atom(),
                              plugins = [] :: list(),
                              secure = false :: false | {Mod :: atom(), Fun :: atom()},
-                             extra_state :: any()
+                             extra_state :: any(),
+                             realpath = <<>> :: string()
                             }).
 
 -record(cowboy_handler_value, {
